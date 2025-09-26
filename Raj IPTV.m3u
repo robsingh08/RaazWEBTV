@@ -1,5 +1,6 @@
-#EXTM3U
-#EXTM3U x-tvg-url="https://jiotv.data.cdn.jio.com/apis/v3.0/getMobileChannelList/get/?os=android&devicetype=phone&usertype=tvYR7NSNn7rymo3F"
+#EXTM3U x-tvg-url="https://raw.githubusercontent.com/mitthu786/tvepg/refs/heads/main/tataplay/epg.xml.gz"
+#EXTM3U x-tvg-url="https://raw.githubusercontent.com/mitthu786/tvepg/refs/heads/main/jiotv/epg.xml.gz"
+#EXTM3U x-tvg-url="https://raw.githubusercontent.com/mitthu786/tvepg/refs/heads/main/epg.xml.gz"
 
 #EXTINF:-1 tvg-logo="https://play-lh.googleusercontent.com/mR32RPIeVrVU7gDMRPMqVxCgsu5JDtSsQ6P2N0G_uTjBWmCuVs7j5G_QW62uKP8a4n8" group-title="Gurbani", SGPC Sri Amritsar Sahib
 http://146.59.253.52:8080/sgpclive/playlist.m3u8
@@ -2212,3 +2213,4 @@ https://nonprod-sports-cohort.jiocinema.com/bpk-tv/JC_NickJr/JCHLS/Fallback/inde
 
 #EXTINF:-1 tvg-logo="https://jiotvimages.cdn.jio.com/dare_images/images/Sports18_1_HD.png" group-title="JioHotstar", Star Sports 2 HD
 https://nonprod-sports-cohort.jiocinema.com/bpk-tv/JC_Sports18_1HD/JCHLS/Fallback/index.m3u8
+
