@@ -1,0 +1,145 @@
+name: Personal JioTV EPG (single-file)
+
+on:
+  schedule:
+    - cron: "5 */6 * * *"   # every 6 hours
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate XMLTV (inline Python)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os, json, gzip, time, datetime, urllib.request
+
+          CHANNELS_URL = "https://jiotv.data.cdn.jio.com/apis/v3.0/getMobileChannelList/get/?os=android&devicetype=phone&usertype=tvYR7NSNn7rymo3F"
+          EPG_URL = "https://jiotv.data.cdn.jio.com/apis/v1.3/getepg/get/?offset={offset}&channel_id={cid}"
+
+          def http_get(url):
+            req = urllib.request.Request(url, headers={"User-Agent":"okhttp/4.9"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+              return r.read()
+
+          def load_channels():
+            raw = http_get(CHANNELS_URL)
+            data = json.loads(raw.decode("utf-8"))
+            channels = data.get("result", []) or data.get("data", [])
+            out = []
+            for ch in channels:
+              cid = ch.get("channel_id") or ch.get("channel_id_num") or ch.get("id")
+              name = ch.get("channel_name") or ch.get("name")
+              logo_name = ch.get("logoUrl") or ch.get("logo_url") or ch.get("logo")
+              if logo_name and not str(logo_name).startswith("http"):
+                logo = "https://jiotv.catchup.cdn.jio.com/dare_images/images/" + str(logo_name)
+              else:
+                logo = logo_name or ""
+              if cid and name:
+                out.append({"id": str(cid), "name": name, "logo": logo})
+            return out
+
+          def fetch_epg_for_channel(cid, offsets):
+            programmes = []
+            for off in offsets:
+              url = EPG_URL.format(offset=off, cid=cid)
+              try:
+                raw = http_get(url)
+                data = json.loads(raw.decode("utf-8"))
+              except Exception:
+                continue
+              items = data.get("epg", []) or data.get("result", []) or []
+              for it in items:
+                s = it.get("start_time") or it.get("startTime") or it.get("start") or 0
+                e = it.get("end_time") or it.get("endTime") or it.get("end") or 0
+                title = it.get("showname") or it.get("title") or ""
+                desc = it.get("description") or it.get("desc") or ""
+                cat = it.get("category") or it.get("type") or ""
+                img = it.get("imageUrl") or it.get("poster") or ""
+                if isinstance(s, str) and s.isdigit(): s = int(s)
+                if isinstance(e, str) and e.isdigit(): e = int(e)
+                if not s or not e: continue
+                programmes.append({"start": int(s), "stop": int(e), "title": title, "desc": desc, "cat": cat, "img": img})
+            return programmes
+
+          def xmltv_time(ts):
+            return datetime.datetime.utcfromtimestamp(ts).strftime("%Y%m%d%H%M%S +0000")
+
+          def esc(s):
+            return (s or "").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;").replace("'","&apos;")
+
+          def write_xmltv(channels, epg_map, out_path):
+            with open(out_path, "w", encoding="utf-8") as f:
+              f.write('<?xml version="1.0" encoding="UTF-8"?>
+')
+              f.write('<tv generator-info-name="single-file-jiotv-epg">
+')
+              for ch in channels:
+                f.write(f'  <channel id="{ch["id"]}">
+')
+                f.write(f'    <display-name>{esc(ch["name"])}</display-name>
+')
+                if ch["logo"]:
+                  f.write(f'    <icon src="{esc(ch["logo"])}"/>
+')
+                f.write('  </channel>
+')
+              for ch in channels:
+                for p in sorted(epg_map.get(ch["id"], []), key=lambda x: x["start"]):
+                  f.write(f'  <programme start="{xmltv_time(p["start"])}" stop="{xmltv_time(p["stop"])}" channel="{ch["id"]}">
+')
+                  if p["title"]:
+                    f.write(f'    <title>{esc(p["title"])}</title>
+')
+                  if p["desc"]:
+                    f.write(f'    <desc>{esc(p["desc"])}</desc>
+')
+                  if p["cat"]:
+                    f.write(f'    <category>{esc(p["cat"])}</category>
+')
+                  if p["img"]:
+                    icon = p["img"]
+                    if not str(icon).startswith("http"):
+                      icon = "https://jiotv.catchup.cdn.jio.com/dare_images/shows/" + str(icon)
+                    f.write(f'    <icon src="{esc(icon)}"/>
+')
+                  f.write('  </programme>
+')
+              f.write('</tv>
+')
+
+          def gzip_file(src, dst):
+            with open(src, "rb") as fin, gzip.open(dst, "wb", compresslevel=6) as fout:
+              fout.write(fin.read())
+
+          # Configurable time window (lightweight by default)
+          days_future = int(os.getenv("DAYS_FUTURE", "2"))
+          channels = load_channels()
+          offsets = list(range(0, days_future + 1))
+
+          epg_map = {}
+          for ch in channels:
+            progs = fetch_epg_for_channel(ch["id"], offsets)
+            if progs:
+              epg_map[ch["id"]] = progs
+            time.sleep(0.03)
+
+          write_xmltv(channels, epg_map, "epg.xml")
+          gzip_file("epg.xml", "epg.xml.gz")
+          PY
+
+      - name: Commit and push EPG
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add epg.xml epg.xml.gz || true
+          git commit -m "auto: refresh epg" || echo "No changes"
+          git push
